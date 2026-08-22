@@ -8,7 +8,7 @@ Production-oriented fleet ML platform spanning failure-risk prediction, telemetr
 
 **v0.5 — production MLOps integration around the promoted v0.4 ETA artifact.**
 
-The platform now contains five release layers:
+The platform contains five release layers:
 
 1. **v0.1** — leakage-aware vehicle failure baseline;
 2. **v0.2** — calibrated model-promotion comparison;
@@ -52,11 +52,28 @@ The platform now contains five release layers:
                                               Terraform
 ```
 
+## Measured v0.5 CI integration result
+
+The release integration has been exercised in GitHub Actions rather than documented as an untested architecture. The validated run passed:
+
+- Ruff;
+- **27 Python tests** before the evidence-lock test was added;
+- Docker Compose validation, image build, and an actual container runtime smoke test;
+- `/health` returning successfully while `/ready` correctly returned **503** without a mounted model;
+- Terraform format, initialization without backend, and validation using Kubernetes provider **2.38.0**;
+- the complete v0.1 through v0.4 evaluation/artifact chain;
+- MLflow **3.15.1** local tracking and model-registry creation;
+- registered ETA model reload + inference with a persisted model signature;
+- `skops` model serialization for the MLflow copy;
+- Confluent Kafka client **2.15.0** import.
+
+Machine-readable integration evidence: [`evals/results/mlops_v0.5_ci.json`](evals/results/mlops_v0.5_ci.json).
+
+This is **CI integration evidence**, not live deployment evidence. No live Kubernetes apply, production Kafka broker, shared MLflow server, production latency benchmark, or availability SLO is claimed.
+
 ## Online ETA API
 
 The API serves the existing promoted ETA joblib artifact. It verifies that the persisted feature list exactly matches the 13-feature serving contract before readiness can pass.
-
-Endpoints:
 
 | Endpoint | Purpose |
 |---|---|
@@ -64,8 +81,6 @@ Endpoints:
 | `GET /ready` | model/artifact readiness |
 | `POST /predict` | ETA inference |
 | `GET /metrics` | Prometheus exposition |
-
-Example:
 
 ```bash
 fleet-intelligence serve \
@@ -77,7 +92,7 @@ Prediction requests contain only dispatch-time inputs; `actual_travel_minutes` i
 
 ## MLflow release lineage
 
-v0.5 can log the promoted ETA artifact and its frozen evaluation evidence to MLflow, with optional registration as a model version:
+v0.5 logs the promoted ETA artifact and its frozen evaluation evidence to MLflow and can register a model version. The registry copy uses `skops` serialization plus an explicit input/output signature. Non-promoted evaluation evidence is rejected before registry logging.
 
 ```bash
 pip install -e ".[mlops]"
@@ -90,11 +105,9 @@ fleet-intelligence register \
   --registered-model-name fleet-intelligence-eta
 ```
 
-The command rejects non-promoted evaluation evidence before registry logging.
-
 ## Kafka-compatible ingestion
 
-The streaming worker uses the same JSON schema as the HTTP API and disables auto-commit. A message offset is committed only after validation and successful ETA scoring.
+The streaming worker uses the same JSON schema as the HTTP API and disables auto-commit. A message offset is committed synchronously only after validation and successful ETA scoring. Invalid events and failed scoring are not acknowledged.
 
 ```bash
 fleet-intelligence consume \
@@ -104,7 +117,7 @@ fleet-intelligence consume \
   --group-id fleet-intelligence-eta-v0.5
 ```
 
-Malformed messages or failed scoring are not acknowledged by this worker. Dead-letter/retry policy is intentionally left deployment-specific.
+A deployment-specific retry/dead-letter policy remains intentionally outside this worker.
 
 ## Docker
 
@@ -114,33 +127,13 @@ The API image runs as a non-root user. The model artifact is mounted at runtime 
 docker compose up --build
 ```
 
-Local Compose expects:
-
-```text
-artifacts/mobility/eta/eta_hist_gradient_boosting.joblib
-```
-
-and mounts it read-only at `/models/eta_hist_gradient_boosting.joblib`.
+Local Compose expects `artifacts/mobility/eta/eta_hist_gradient_boosting.joblib` and mounts it read-only at `/models/eta_hist_gradient_boosting.joblib`.
 
 ## Kubernetes
 
-Manifests live under [`infra/k8s`](infra/k8s):
+Manifests live under [`infra/k8s`](infra/k8s): `deployment.yaml`, `service.yaml`, and `model-pvc.yaml`.
 
-- `deployment.yaml`
-- `service.yaml`
-- `model-pvc.yaml`
-
-The Deployment includes:
-
-- two replicas;
-- liveness and readiness probes;
-- CPU/memory requests and limits;
-- non-root execution;
-- dropped Linux capabilities;
-- read-only root filesystem;
-- read-only model PVC mount.
-
-The PVC is intentionally empty in source control. The promoted model artifact must be delivered to it before `/ready` succeeds.
+The Deployment includes two replicas, liveness/readiness probes, resource requests/limits, non-root execution, dropped Linux capabilities, read-only root filesystem, and a read-only model PVC mount. The PVC is intentionally empty in source control; the promoted model artifact must be delivered to it before `/ready` succeeds.
 
 ## Terraform
 
@@ -172,9 +165,7 @@ Synthetic mobility fixture: **1,600 ETA trips**, **18 delivery stops + one depot
 | Nearest-feasible greedy baseline | 68.366 km | 25.206 km | 18/18 | 0 |
 | OR-Tools guided local search | **63.666 km** | **22.582 km** | **18/18** | **0** |
 
-**Routing promotion decision: PROMOTE.** OR-Tools reduced Haversine route distance by **6.87%** on this deterministic fixture.
-
-This is not a production savings claim and does not use a live road graph or delivery time windows.
+**Routing promotion decision: PROMOTE.** OR-Tools reduced Haversine route distance by **6.87%** on this deterministic fixture. This is not a production savings claim and does not use a live road graph or delivery time windows.
 
 Machine-readable v0.4 evidence: [`evals/results/mobility_v0.4_synthetic.json`](evals/results/mobility_v0.4_synthetic.json).
 
@@ -209,12 +200,7 @@ oldest                                               newest
 
 Release rules are frozen before test observation. A more complex model is not promoted automatically, and synthetic fixtures are never represented as real-world performance evidence.
 
-See:
-
-- [`docs/evaluation-policy.md`](docs/evaluation-policy.md)
-- [`docs/telemetry-anomaly-v0.3.md`](docs/telemetry-anomaly-v0.3.md)
-- [`docs/mobility-v0.4.md`](docs/mobility-v0.4.md)
-- [`docs/production-mlops-v0.5.md`](docs/production-mlops-v0.5.md)
+See [`docs/evaluation-policy.md`](docs/evaluation-policy.md), [`docs/telemetry-anomaly-v0.3.md`](docs/telemetry-anomaly-v0.3.md), [`docs/mobility-v0.4.md`](docs/mobility-v0.4.md), and [`docs/production-mlops-v0.5.md`](docs/production-mlops-v0.5.md).
 
 ## Development
 
@@ -227,28 +213,7 @@ ruff check .
 pytest -q
 ```
 
-CI additionally validates:
-
-- Docker Compose configuration;
-- Docker image build;
-- Terraform format/init/validate;
-- v0.1–v0.4 evaluation compatibility;
-- MLflow tracking + registered-model creation from the promoted ETA artifact;
-- Confluent Kafka client import.
-
-## Generated artifacts
-
-```text
-artifacts/
-├── models/
-├── anomaly-model/
-└── mobility/
-    └── eta/
-        ├── eta_hist_gradient_boosting.joblib
-        └── eta_metadata.json
-```
-
-Generated model binaries remain ignored by Git. Frozen protocols and benchmark evidence remain version-controlled.
+CI additionally validates Docker runtime behavior, Terraform, v0.1–v0.4 evaluation compatibility, MLflow registry creation/reload, and the Confluent Kafka client.
 
 ## Next evidence gap
 
