@@ -230,7 +230,11 @@ def _mask_sensor_families(
 
     for signal in TELEMETRY_SIGNALS:
         row_positions = rng.choice(len(masked), size=rows_per_signal, replace=False)
-        family = [column for column in masked.columns if column == signal or column.startswith(f"{signal}_")]
+        family = [
+            column
+            for column in masked.columns
+            if column == signal or column.startswith(f"{signal}_")
+        ]
         masked.iloc[row_positions, masked.columns.get_indexer(family)] = np.nan
     return masked
 
@@ -473,10 +477,10 @@ def evaluate_anomaly_detection(
             "candidate": "isolation_forest_300",
         },
         "limitations": [
-            "Synthetic anomaly labels are for CI/software regression only, not production evidence.",
+            "Synthetic anomaly labels are CI regression evidence only, not production evidence.",
             "Development labels calibrate anomaly scores and choose operating thresholds.",
-            "PSI detects distribution shift but does not prove a causal performance regression.",
-            "A real fleet deployment needs sensor-specific sampling and maintenance-event semantics.",
+            "PSI detects shift but does not prove a causal performance regression.",
+            "Real deployment needs sensor-specific sampling and maintenance-event semantics.",
         ],
     }
 
