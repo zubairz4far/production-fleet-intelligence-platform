@@ -153,7 +153,8 @@ def population_stability_index(
     epsilon = 1e-6
     reference_share = np.clip(reference_counts / reference_counts.sum(), epsilon, None)
     current_share = np.clip(current_counts / current_counts.sum(), epsilon, None)
-    return float(np.sum((current_share - reference_share) * np.log(current_share / reference_share)))
+    ratio = current_share / reference_share
+    return float(np.sum((current_share - reference_share) * np.log(ratio)))
 
 
 def simulate_sensor_drift(frame: pd.DataFrame) -> pd.DataFrame:
