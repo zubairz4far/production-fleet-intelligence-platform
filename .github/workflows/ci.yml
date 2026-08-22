@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  baseline:
+  model-evaluation:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -25,21 +25,43 @@ jobs:
       - name: Tests
         run: pytest -q
       - name: Generate deterministic CI dataset
-        run: python scripts/generate_synthetic_fleet.py --output /tmp/fleet.csv --rows 1200 --vehicles 60 --seed 42
-      - name: Run leakage-safe baseline benchmark
-        run: python -m fleet_intelligence.cli train --data /tmp/fleet.csv --report /tmp/baseline_report.json
-      - name: Validate benchmark report
+        run: >-
+          python scripts/generate_synthetic_fleet.py
+          --output /tmp/fleet.csv
+          --rows 1200
+          --vehicles 60
+          --seed 42
+      - name: Run v0.1 compatibility baseline
+        run: >-
+          python -m fleet_intelligence.cli train
+          --data /tmp/fleet.csv
+          --report /tmp/baseline_report.json
+      - name: Run v0.2 model promotion evaluation
+        run: >-
+          python -m fleet_intelligence.cli compare
+          --data /tmp/fleet.csv
+          --report /tmp/model_comparison_v0.2.json
+          --artifact-dir /tmp/models
+      - name: Validate v0.2 report and artifacts
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
 
-          report = json.loads(Path('/tmp/baseline_report.json').read_text())
-          assert report['split']['strategy'] == 'chronological_holdout'
-          assert report['split']['train_end'] <= report['split']['test_start']
-          assert report['metrics']['pr_auc'] >= 0.0
-          assert report['metrics']['roc_auc'] >= 0.0
-          assert report['metrics']['brier_score'] <= 1.0
-          assert report['threshold_policy']['false_negative_cost'] == 5.0
-          print(json.dumps(report['metrics'], indent=2))
+          report = json.loads(Path('/tmp/model_comparison_v0.2.json').read_text())
+          assert report['version'] == '0.2.0'
+          assert report['split']['strategy'] == 'chronological_train_dev_test'
+          assert report['split']['train_end'] <= report['split']['dev_start']
+          assert report['split']['dev_end'] <= report['split']['test_start']
+          assert report['threshold_policy']['selection_partition'] == 'development'
+          assert report['promotion']['decision'] in {'promote', 'reject'}
+          assert report['promotion']['test_observed_once'] is True
+          assert Path('/tmp/models/baseline_logistic.joblib').exists()
+          assert Path('/tmp/models/candidate_calibrated.joblib').exists()
+          assert Path('/tmp/models/metadata.json').exists()
+          print(json.dumps({
+              'baseline': report['baseline']['test_metrics'],
+              'candidate': report['candidate']['calibrated_test_metrics'],
+              'promotion': report['promotion'],
+          }, indent=2))
           PY
