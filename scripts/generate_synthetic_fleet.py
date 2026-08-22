@@ -58,20 +58,85 @@ def generate(rows: int = 1200, vehicles: int = 60, seed: int = 42) -> pd.DataFra
     )
 
 
+def inject_telemetry_anomalies(
+    frame: pd.DataFrame,
+    *,
+    seed: int = 73,
+    anomaly_rate: float = 0.12,
+) -> pd.DataFrame:
+    """Inject labeled dev/test anomalies for deterministic CI regression only."""
+
+    if not 0.02 <= anomaly_rate <= 0.30:
+        raise ValueError("anomaly_rate must be between 0.02 and 0.30")
+
+    data = frame.copy()
+    rng = np.random.default_rng(seed)
+    labels = np.zeros(len(data), dtype=int)
+    train_end = int(len(data) * 0.60)
+    dev_end = int(len(data) * 0.80)
+
+    windows = ((train_end, dev_end), (dev_end, len(data)))
+    selected_positions: list[int] = []
+    for start, end in windows:
+        available = np.arange(start, end)
+        count = max(8, int(round(len(available) * anomaly_rate)))
+        selected = rng.choice(available, size=min(count, len(available)), replace=False)
+        selected_positions.extend(int(position) for position in selected)
+
+    selected_positions.sort()
+    for offset, position in enumerate(selected_positions):
+        labels[position] = 1
+        anomaly_type = offset % 5
+        severity = rng.uniform(0.85, 1.15)
+
+        if anomaly_type == 0:
+            data.loc[position, "engine_temp_c"] += 16.0 * severity
+            data.loc[position, "vibration_rms"] += 1.6 * severity
+        elif anomaly_type == 1:
+            data.loc[position, "oil_pressure_kpa"] -= 82.0 * severity
+            data.loc[position, "engine_temp_c"] += 8.0 * severity
+        elif anomaly_type == 2:
+            data.loc[position, "battery_voltage"] -= 1.65 * severity
+            data.loc[position, "fuel_rate_lph"] += 2.1 * severity
+        elif anomaly_type == 3:
+            data.loc[position, "vibration_rms"] += 2.7 * severity
+        else:
+            data.loc[position, "fuel_rate_lph"] += 3.4 * severity
+            data.loc[position, "oil_pressure_kpa"] -= 42.0 * severity
+
+    data["vibration_rms"] = np.maximum(data["vibration_rms"], 0.1)
+    data["oil_pressure_kpa"] = np.maximum(data["oil_pressure_kpa"], 20.0)
+    data["battery_voltage"] = np.maximum(data["battery_voltage"], 8.0)
+    data["fuel_rate_lph"] = np.maximum(data["fuel_rate_lph"], 0.1)
+    data["telemetry_anomaly"] = labels
+    return data
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default="data/synthetic_fleet.csv")
     parser.add_argument("--rows", type=int, default=1200)
     parser.add_argument("--vehicles", type=int, default=60)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--with-anomalies", action="store_true")
+    parser.add_argument("--anomaly-rate", type=float, default=0.12)
     args = parser.parse_args()
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     frame = generate(rows=args.rows, vehicles=args.vehicles, seed=args.seed)
+    if args.with_anomalies:
+        frame = inject_telemetry_anomalies(
+            frame,
+            seed=args.seed + 31,
+            anomaly_rate=args.anomaly_rate,
+        )
+
     frame.to_csv(output, index=False)
     print(f"wrote {len(frame)} rows to {output}")
     print(f"positive_rate={frame['failure_within_horizon'].mean():.4f}")
+    if "telemetry_anomaly" in frame.columns:
+        print(f"anomaly_rate={frame['telemetry_anomaly'].mean():.4f}")
 
 
 if __name__ == "__main__":

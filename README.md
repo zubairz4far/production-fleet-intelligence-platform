@@ -2,108 +2,171 @@
 
 [![CI](https://github.com/zubairz4far/production-fleet-intelligence-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/zubairz4far/production-fleet-intelligence-platform/actions/workflows/ci.yml)
 
-Production-oriented machine-learning platform for fleet operations: leakage-safe vehicle failure prediction first, followed by telemetry anomaly detection, ETA prediction, geospatial optimization, streaming data, and monitored deployment.
+Production-oriented ML platform for fleet operations: leakage-safe failure prediction, causal telemetry anomaly detection, robustness evaluation, and a planned path to ETA/geospatial optimization, streaming, and production MLOps.
 
 ## Status
 
-**v0.2 — calibrated model promotion pipeline.**
+**v0.3 — causal telemetry anomaly detection + robustness evaluation.**
 
-The project now compares a balanced Logistic Regression baseline with a balanced histogram gradient-boosting candidate using a chronological **train → development → untouched test** protocol.
+The repository now contains two evaluated ML tracks:
 
-Model complexity alone does not justify promotion. Calibration and operating thresholds are fixed from the development window before the test set is evaluated.
+1. **vehicle failure-risk prediction** — Logistic Regression baseline versus calibrated histogram gradient boosting;
+2. **telemetry anomaly detection** — robust statistical detector versus Isolation Forest using causal rolling features.
 
-## Measured v0.2 CI result
+The project is built around explicit train/development/test separation, operational thresholds, reproducible reports, and model-promotion gates rather than demo accuracy.
 
-The deterministic synthetic CI fixture produced:
+> All headline numbers below come from deterministic synthetic CI fixtures. They validate software and evaluation behavior only. They are **not evidence of real fleet performance**.
+
+## Measured v0.3 anomaly CI result
+
+Synthetic anomaly fixture: **1,200 observations, 60 vehicles, 4.83% labeled anomalies**. The first 60% of the timeline is anomaly-free for unsupervised fitting; anomalies are injected only into development/test windows.
+
+| Detector | PR-AUC | ROC-AUC | Recall | False negatives | Business cost |
+|---|---:|---:|---:|---:|---:|
+| Robust z-score baseline | 0.197 | **0.688** | 0.931 | 2 | 155 |
+| Isolation Forest candidate | **0.210** | 0.641 | **0.966** | **1** | **153** |
+
+**Predeclared v0.3 promotion decision: PROMOTE.**
+
+The Isolation Forest candidate satisfied all criteria declared before the test run:
+
+- PR-AUC did not regress;
+- configured business cost did not regress;
+- 10% missing-sensor-family stress produced less than 0.10 absolute PR-AUC drop.
+
+### Robustness result
+
+With 10% of each sensor family masked at test time:
+
+| Metric | Clean | Masked |
+|---|---:|---:|
+| PR-AUC | 0.210 | 0.201 |
+| Recall | 0.966 | 0.793 |
+| Business cost | 153 | 177 |
+
+The PR-AUC drop was only **0.009**, so the predeclared robustness criterion passed. However, recall dropped by **0.172** and business cost increased to **177**. That degradation is retained as a warning. The promotion rule is not changed after observing the test set; a stricter recall/cost robustness gate would require a new untouched holdout.
+
+### Unseen-vehicle stress test
+
+Every fifth vehicle identity was excluded from model fitting. On the synthetic held-out-vehicle test slice:
+
+- 12 held-out vehicles
+- 48 test observations
+- PR-AUC: **0.286**
+- ROC-AUC: **0.791**
+- recall: **1.000**
+- false negatives: **0**
+
+The model does not see held-out vehicle identities during fitting. Their own prior telemetry remains available for causal rolling features, matching a deployment where a newly onboarded vehicle accumulates history over time.
+
+### Drift check
+
+Population Stability Index (PSI) compares the training distribution with the chronological test window and a deterministic simulated-drift scenario.
+
+- clean maximum PSI: **0.456**
+- simulated maximum PSI: **5.520**
+- high-drift threshold: **0.25**
+
+The clean synthetic test window already shows high fuel-rate PSI because the generator contains a temporal mileage/fuel trend. The simulated scenario produces strong shift across engine temperature, oil pressure, battery voltage, vibration, and fuel rate. PSI is treated as a distribution warning, not proof of causal model degradation.
+
+Machine-readable evidence: [`evals/results/anomaly_detection_v0.3_synthetic.json`](evals/results/anomaly_detection_v0.3_synthetic.json).
+
+Protocol: [`docs/telemetry-anomaly-v0.3.md`](docs/telemetry-anomaly-v0.3.md).
+
+## Previous v0.2 failure-risk result
 
 | Model | PR-AUC | ROC-AUC | Brier | Recall | Business cost |
 |---|---:|---:|---:|---:|---:|
 | Logistic Regression baseline | 0.373 | **0.884** | 0.140 | **0.696** | **63** |
 | Calibrated HistGradientBoosting | **0.391** | 0.878 | **0.071** | 0.609 | 76 |
 
-**Promotion decision: REJECT.**
+**v0.2 promotion decision: REJECT.**
 
-The candidate improved PR-AUC and probability calibration, but it increased the configured business cost from **63 to 76**, so the promotion gate rejected it.
-
-This is intentional evidence that the project does not equate a stronger model class or a better single metric with a production improvement.
-
-> These scores come from a deterministic synthetic software-regression fixture. They are **not** evidence of real fleet performance.
+The stronger classifier improved PR-AUC and calibration but worsened configured business cost, so it was not promoted.
 
 Machine-readable evidence: [`evals/results/model_comparison_v0.2_synthetic.json`](evals/results/model_comparison_v0.2_synthetic.json).
 
-## Why this project exists
-
-Fleet ML is not one model. A useful production system eventually needs connected capabilities:
-
-- vehicle failure-risk prediction
-- telemetry anomaly detection
-- ETA and delay prediction
-- fuel-consumption forecasting
-- geospatial route optimization
-- batch and online inference
-- drift and data-quality monitoring
-- experiment/model tracking
-- streaming telemetry ingestion
-
-The repository is built around evaluation and operational trade-offs rather than demo accuracy.
-
-## v0.2 architecture
+## v0.3 architecture
 
 ```text
 Fleet telemetry/history
         |
         v
-schema + leakage checks
+schema + chronology validation
         |
         v
-chronological split
+per-vehicle causal features
+shift(1) -> rolling 3/6 windows
         |
-        +-------------------+
-        |                   |
-        v                   v
-Logistic baseline     HistGradientBoosting
-        |                   |
-        |             Platt calibration
-        |                   |
-        +---------+---------+
-                  |
-                  v
-       development threshold search
-                  |
-                  v
-          untouched test window
-                  |
-                  v
-      PR-AUC / Brier / business cost
-                  |
-                  v
-           PROMOTE or REJECT
+        v
+chronological train / dev / test
+        |
+        +-------------------------+
+        |                         |
+        v                         v
+Robust z-score              Isolation Forest
+baseline                    candidate
+        |                         |
+        +------------+------------+
+                     |
+                     v
+          development calibration
+          + threshold selection
+                     |
+                     v
+             untouched test
+                     |
+      +--------------+---------------+
+      |              |               |
+      v              v               v
+ model gate     missing sensors   unseen vehicles
+                                      |
+                                      v
+                              robustness report
+                     |
+                     v
+               PSI drift checks
+                     |
+                     v
+        PROMOTE / REJECT + artifacts
 ```
 
-## Dataset contract
+## Causal telemetry features
 
-The failure-risk task expects one row per vehicle observation with at least:
+For each of five telemetry signals:
 
-| Column | Type | Meaning |
-|---|---|---|
-| `vehicle_id` | string | Stable vehicle identifier |
-| `timestamp` | datetime | Observation timestamp |
-| `mileage_km` | numeric | Odometer reading |
-| `engine_temp_c` | numeric | Engine temperature |
-| `oil_pressure_kpa` | numeric | Oil pressure |
-| `battery_voltage` | numeric | Battery voltage |
-| `vibration_rms` | numeric | Vibration signal summary |
-| `fuel_rate_lph` | numeric | Fuel consumption rate |
-| `hours_since_service` | numeric | Operating hours since last service |
-| `failure_within_horizon` | 0/1 | Label known only after the prediction horizon |
+- current value
+- lag-1 value
+- past 3-observation mean/std
+- current minus past-3 mean
+- past 6-observation mean/std
 
-Identifiers, timestamps, labels, and post-event maintenance fields are not model features.
+Mileage and hours since service are included as operating context, producing **37 anomaly features**.
+
+Historical windows use `shift(1)` before rolling. Future observations cannot enter earlier feature rows. A regression test mutates a future observation and verifies that an earlier row remains unchanged.
+
+## Dataset contracts
+
+Failure-risk data requires:
+
+| Column | Meaning |
+|---|---|
+| `vehicle_id` | stable vehicle identifier |
+| `timestamp` | observation timestamp |
+| `mileage_km` | odometer reading |
+| `engine_temp_c` | engine temperature |
+| `oil_pressure_kpa` | oil pressure |
+| `battery_voltage` | battery voltage |
+| `vibration_rms` | vibration summary |
+| `fuel_rate_lph` | fuel consumption rate |
+| `hours_since_service` | operating hours since service |
+| `failure_within_horizon` | future failure label |
+
+The anomaly benchmark adds `telemetry_anomaly` as an evaluation label. That label is never part of the detector feature matrix.
 
 ## Evaluation discipline
 
-Random row splitting is prohibited for reported promotion results.
-
-v0.2 uses:
+Reported model-selection experiments use chronological partitions:
 
 ```text
 oldest                                               newest
@@ -111,59 +174,16 @@ oldest                                               newest
 ```
 
 - **train** fits model parameters;
-- **development** fits Platt calibration and selects business-cost thresholds;
-- **test** is evaluated after those choices are fixed.
+- **development** fits score/probability calibration and operating thresholds;
+- **test** is evaluated only after those choices are fixed.
 
-Promotion currently requires all of:
+Random row splitting is prohibited for reported promotion results.
 
-1. candidate PR-AUC >= baseline PR-AUC;
-2. candidate Brier score <= baseline Brier score;
-3. candidate configured business cost <= baseline business cost.
+See:
 
-See [`docs/evaluation-policy.md`](docs/evaluation-policy.md) and [`docs/model-promotion-v0.2.md`](docs/model-promotion-v0.2.md).
-
-## Metrics
-
-Accuracy is intentionally not a release metric. Reports include:
-
-- PR-AUC
-- ROC-AUC
-- precision
-- recall
-- F1
-- Brier score
-- false positives / false negatives
-- business-cost operating point
-- development-selected threshold
-
-The default example weights a false negative at 5× a false positive. This is configurable and is not presented as universal fleet economics.
-
-## Model artifacts
-
-The v0.2 comparison can persist:
-
-```text
-artifacts/models/
-├── baseline_logistic.joblib
-├── candidate_calibrated.joblib
-└── metadata.json
-```
-
-The candidate artifact contains the fitted gradient-boosting model, Platt calibrator, selected threshold, and feature contract.
-
-Generated artifacts are ignored by Git.
-
-## Post-test interpretation
-
-After the promotion decision, the pipeline computes permutation importance using average precision scoring. It is explicitly marked as **post-test analysis** and is not used for model selection.
-
-On the synthetic CI fixture, the three largest average PR-AUC drops were associated with:
-
-1. `hours_since_service`
-2. `vibration_rms`
-3. `oil_pressure_kpa`
-
-Those values reflect only the synthetic generator and must not be interpreted as real-world fleet feature importance.
+- [`docs/evaluation-policy.md`](docs/evaluation-policy.md)
+- [`docs/model-promotion-v0.2.md`](docs/model-promotion-v0.2.md)
+- [`docs/telemetry-anomaly-v0.3.md`](docs/telemetry-anomaly-v0.3.md)
 
 ## Quick start
 
@@ -171,7 +191,24 @@ Those values reflect only the synthetic generator and must not be interpreted as
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
+```
 
+Run the v0.3 synthetic anomaly pipeline:
+
+```bash
+python scripts/generate_synthetic_fleet.py \
+  --output data/synthetic_fleet_anomaly.csv \
+  --with-anomalies
+
+python -m fleet_intelligence.cli anomaly \
+  --data data/synthetic_fleet_anomaly.csv \
+  --report artifacts/anomaly_report_v0.3.json \
+  --artifact-dir artifacts/anomaly-model
+```
+
+Run the v0.2 failure-risk comparison:
+
+```bash
 python scripts/generate_synthetic_fleet.py --output data/synthetic_fleet.csv
 
 python -m fleet_intelligence.cli compare \
@@ -180,20 +217,35 @@ python -m fleet_intelligence.cli compare \
   --artifact-dir artifacts/models
 ```
 
-Compatibility v0.1 baseline:
-
-```bash
-python -m fleet_intelligence.cli train \
-  --data data/synthetic_fleet.csv \
-  --report artifacts/baseline_report.json
-```
-
-Run quality gates:
+Quality gates:
 
 ```bash
 ruff check .
 pytest -q
 ```
+
+Current CI suite: **14 tests** plus end-to-end v0.1, v0.2, and v0.3 command validation.
+
+## Generated model artifacts
+
+v0.2:
+
+```text
+artifacts/models/
+├── baseline_logistic.joblib
+├── candidate_calibrated.joblib
+└── metadata.json
+```
+
+v0.3:
+
+```text
+artifacts/anomaly-model/
+├── anomaly_isolation_forest.joblib
+└── anomaly_metadata.json
+```
+
+Generated model binaries are ignored by Git; benchmark evidence and protocol files remain in source control.
 
 ## Progression
 
@@ -201,40 +253,40 @@ pytest -q
 
 - dataset/schema contract
 - chronological holdout
-- leakage-safe preprocessing
 - balanced Logistic Regression
-- business-cost threshold optimization
-- reproducible JSON report
+- business-cost thresholding
+- JSON evaluation report
 - tests + CI
 
 ### v0.2 — calibrated model promotion ✅
 
-- chronological train/dev/test split
+- train/dev/test discipline
 - HistGradientBoosting candidate
-- balanced sample weighting
-- Platt probability calibration
-- development-only threshold selection
+- probability calibration
+- development-only thresholds
 - untouched test promotion gate
-- PR-AUC / Brier / business-cost criteria
-- persisted model artifacts + metadata
-- post-test permutation importance
-- 9-test regression suite + CI
+- model artifact metadata
+- post-test interpretation
 
-### v0.3 — telemetry and anomaly detection
+### v0.3 — telemetry anomaly detection ✅
 
-- rolling/windowed telemetry features
-- streaming-compatible feature transforms
-- anomaly detection baseline + candidate
-- feature-missingness robustness
-- drift/data-quality reports
-- vehicle-group temporal stress test
+- causal rolling telemetry features
+- robust statistical baseline
+- Isolation Forest candidate
+- score calibration + operational thresholds
+- missing-sensor robustness
+- unseen-vehicle stress test
+- PSI drift simulation
+- anomaly model artifacts
+- 14-test suite + end-to-end CI
 
 ### v0.4 — ETA + geospatial optimization
 
-- ETA/delay model
+- ETA/delay baseline and candidate
 - geospatial feature pipeline
 - route graph representation
-- OR-Tools constrained routing benchmark
+- OR-Tools constrained-routing benchmark
+- business objective: lateness + distance + capacity constraints
 
 ### v0.5 — production MLOps integration
 
@@ -248,7 +300,7 @@ pytest -q
 
 ## Portfolio target
 
-The final platform should demonstrate classical ML, time-series feature engineering, anomaly detection, geospatial ML, optimization, streaming/data engineering, MLOps, cloud deployment, and measurable operational trade-offs in one coherent system.
+The final platform is intended to demonstrate classical ML, sequential/time-series feature engineering, anomaly detection, geospatial ML, optimization, streaming/data engineering, MLOps, cloud deployment, and measurable operational trade-offs in one coherent system.
 
 ## License
 

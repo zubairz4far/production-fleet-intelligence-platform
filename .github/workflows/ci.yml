@@ -59,9 +59,64 @@ jobs:
           assert Path('/tmp/models/baseline_logistic.joblib').exists()
           assert Path('/tmp/models/candidate_calibrated.joblib').exists()
           assert Path('/tmp/models/metadata.json').exists()
+          PY
+      - name: Generate deterministic anomaly fixture
+        run: >-
+          python scripts/generate_synthetic_fleet.py
+          --output /tmp/fleet_anomaly.csv
+          --rows 1200
+          --vehicles 60
+          --seed 42
+          --with-anomalies
+          --anomaly-rate 0.12
+      - name: Validate anomaly fixture chronology
+        run: |
+          python - <<'PY'
+          import pandas as pd
+
+          frame = pd.read_csv('/tmp/fleet_anomaly.csv')
+          train_end = int(len(frame) * 0.60)
+          dev_end = int(len(frame) * 0.80)
+          assert frame.iloc[:train_end]['telemetry_anomaly'].sum() == 0
+          assert frame.iloc[train_end:dev_end]['telemetry_anomaly'].sum() > 0
+          assert frame.iloc[dev_end:]['telemetry_anomaly'].sum() > 0
+          PY
+      - name: Run v0.3 telemetry anomaly benchmark
+        run: >-
+          python -m fleet_intelligence.cli anomaly
+          --data /tmp/fleet_anomaly.csv
+          --report /tmp/anomaly_report_v0.3.json
+          --artifact-dir /tmp/anomaly-model
+      - name: Validate v0.3 report and artifacts
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('/tmp/anomaly_report_v0.3.json').read_text())
+          assert report['version'] == '0.3.0'
+          assert report['task'] == 'telemetry_anomaly_detection'
+          assert report['feature_engineering']['feature_count'] >= 30
+          assert report['feature_engineering']['causal_rolling_policy'].startswith('shift(1)')
+          assert report['split']['strategy'] == 'chronological_train_dev_test'
+          assert report['split']['train_end'] <= report['split']['dev_start']
+          assert report['split']['dev_end'] <= report['split']['test_start']
+          assert report['threshold_policy']['selection_partition'] == 'development'
+          assert report['promotion']['decision'] in {'promote', 'reject'}
+          assert report['promotion']['test_observed_once'] is True
+          assert report['drift']['simulated_high_drift_features']
+          assert report['drift']['simulated_max_psi'] > report['drift']['clean_max_psi']
+          missing = report['robustness']['missing_sensor_families']
+          assert 0.0 <= missing['pr_auc_drop'] <= 1.0
+          assert 0.0 <= missing['recall_drop'] <= 1.0
+          assert Path('/tmp/anomaly-model/anomaly_isolation_forest.joblib').exists()
+          assert Path('/tmp/anomaly-model/anomaly_metadata.json').exists()
           print(json.dumps({
               'baseline': report['baseline']['test_metrics'],
-              'candidate': report['candidate']['calibrated_test_metrics'],
+              'candidate': report['candidate']['test_metrics'],
               'promotion': report['promotion'],
+              'missingness': report['robustness']['missing_sensor_families'],
+              'drift': report['drift'],
+              'unseen_vehicle': report['robustness']['unseen_vehicle'],
           }, indent=2))
           PY
