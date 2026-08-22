@@ -216,7 +216,7 @@ ruff check .
 pytest -q
 ```
 
-Current v0.4 CI suite: **20 tests** plus end-to-end v0.1, v0.2, v0.3, and v0.4 evaluation/artifact validation.
+Current v0.4 CI suite: **21 tests** plus end-to-end v0.1, v0.2, v0.3, and v0.4 evaluation/artifact validation. The suite includes a regression test that validates the committed v0.4 evidence contract.
 
 ## Generated model artifacts
 
@@ -277,7 +277,8 @@ Generated model binaries are ignored by Git. Protocols and benchmark evidence re
 - deterministic greedy route baseline
 - OR-Tools capacitated VRP candidate
 - combined ETA + routing release gate
-- 20-test suite + end-to-end CI
+- committed machine-readable evidence regression test
+- 21-test suite + end-to-end CI
 
 ### v0.5 — production MLOps integration
 
