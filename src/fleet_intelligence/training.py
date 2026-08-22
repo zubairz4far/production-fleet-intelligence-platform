@@ -294,9 +294,9 @@ def compare_models(
             "calibration": "platt",
         },
         "limitations": [
-            "Synthetic benchmark data is for CI/software regression only and is not production evidence.",
+            "Synthetic CI data is software-regression evidence only, not production evidence.",
             "Calibration and threshold selection share the development window in v0.2.",
-            "Permutation importance is post-test analysis and must not be used to retune this observed test set.",
+            "Permutation importance is post-test analysis and must not be used for retuning.",
             "Business-cost weights are configurable assumptions, not universal fleet economics.",
         ],
     }
