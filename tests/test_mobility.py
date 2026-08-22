@@ -11,7 +11,7 @@ from fleet_intelligence.geospatial import (
     haversine_km,
 )
 from fleet_intelligence.routing import benchmark_routing, validate_stop_dataset
-from scripts.generate_synthetic_mobility import generate_eta_trips, generate_routing_stops
+from fleet_intelligence.synthetic_mobility import generate_eta_trips, generate_routing_stops
 
 
 def test_haversine_is_zero_for_same_point_and_symmetric() -> None:
