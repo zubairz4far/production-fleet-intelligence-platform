@@ -1,0 +1,71 @@
+{
+  "dataset": {
+    "kind": "deterministic_synthetic_ci_fixture",
+    "rows": 1200,
+    "vehicles": 60,
+    "positive_rate": 0.11166666666666666,
+    "seed": 42,
+    "production_evidence": false
+  },
+  "split": {
+    "strategy": "chronological_train_dev_test",
+    "train_rows": 720,
+    "dev_rows": 240,
+    "test_rows": 240
+  },
+  "baseline": {
+    "model": "logistic_regression_balanced",
+    "threshold_selected_on_dev": 0.6499999999999999,
+    "test_metrics": {
+      "pr_auc": 0.37261192998978676,
+      "roc_auc": 0.8843919054297736,
+      "brier_score": 0.14027146147034208,
+      "precision": 0.36363636363636365,
+      "recall": 0.6956521739130435,
+      "f1": 0.47761194029850745,
+      "false_positives": 28,
+      "false_negatives": 7,
+      "business_cost": 63.0
+    }
+  },
+  "candidate": {
+    "model": "hist_gradient_boosting_balanced",
+    "calibration": "platt_scaling_on_development_predictions",
+    "threshold_selected_on_dev": 0.14999999999999997,
+    "test_metrics": {
+      "pr_auc": 0.3910981175423898,
+      "roc_auc": 0.877780004007213,
+      "brier_score": 0.07133254244022905,
+      "precision": 0.3111111111111111,
+      "recall": 0.6086956521739131,
+      "f1": 0.4117647058823529,
+      "false_positives": 31,
+      "false_negatives": 9,
+      "business_cost": 76.0
+    }
+  },
+  "promotion": {
+    "decision": "reject",
+    "criteria": {
+      "pr_auc_non_regression": true,
+      "brier_non_regression": true,
+      "business_cost_non_regression": false
+    },
+    "reason": "Candidate improved ranking and calibration but regressed configured operating cost."
+  },
+  "post_test_feature_importance": [
+    {
+      "feature": "hours_since_service",
+      "mean_pr_auc_drop": 0.1349915792776885
+    },
+    {
+      "feature": "vibration_rms",
+      "mean_pr_auc_drop": 0.11004873298388611
+    },
+    {
+      "feature": "oil_pressure_kpa",
+      "mean_pr_auc_drop": 0.043380938649259085
+    }
+  ],
+  "warning": "Synthetic CI results validate evaluation mechanics only and are not evidence of real fleet model quality."
+}
