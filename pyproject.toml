@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "production-fleet-intelligence-platform"
-version = "0.2.0"
-description = "Leakage-safe fleet failure prediction with calibrated model promotion gates."
+version = "0.3.0"
+description = "Fleet failure prediction, causal telemetry anomaly detection, and robustness evaluation."
 requires-python = ">=3.11,<3.13"
 dependencies = [
   "numpy>=2.0,<3",
