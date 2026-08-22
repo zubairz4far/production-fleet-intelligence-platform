@@ -47,7 +47,9 @@ def test_inference_feature_builder_does_not_require_target() -> None:
     assert "actual_travel_minutes" not in features.columns
 
 
-def test_fastapi_eta_prediction_and_prometheus_metrics(eta_release: tuple[Path, pd.DataFrame]) -> None:
+def test_fastapi_eta_prediction_and_prometheus_metrics(
+    eta_release: tuple[Path, pd.DataFrame],
+) -> None:
     artifact, trips = eta_release
     client = TestClient(create_app(artifact))
 
