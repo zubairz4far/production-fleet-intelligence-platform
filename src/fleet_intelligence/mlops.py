@@ -24,12 +24,6 @@ def log_eta_release(
     registered_model_name: str | None = "fleet-intelligence-eta",
 ) -> MlflowReleaseResult:
     """Log the promoted ETA model and its frozen evaluation evidence to MLflow."""
-    try:
-        import mlflow
-        import mlflow.sklearn
-    except ImportError as exc:  # pragma: no cover - exercised when optional extra is absent
-        raise RuntimeError('Install the "mlops" extra to use MLflow integration') from exc
-
     artifact_path = Path(model_artifact)
     report_path = Path(evaluation_report)
     bundle = joblib.load(artifact_path)
@@ -43,6 +37,12 @@ def log_eta_release(
     promotion = eta.get("promotion", {})
     if promotion.get("decision") != "promote":
         raise ValueError("Only a promoted ETA evaluation may be registered")
+
+    try:
+        import mlflow
+        import mlflow.sklearn
+    except ImportError as exc:  # pragma: no cover - exercised when optional extra is absent
+        raise RuntimeError('Install the "mlops" extra to use MLflow integration') from exc
 
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
@@ -71,6 +71,7 @@ def log_eta_release(
             sk_model=bundle["model"],
             name="eta_model",
             registered_model_name=registered_model_name,
+            serialization_format="cloudpickle",
             metadata={
                 "source": "production-fleet-intelligence-platform",
                 "evaluation_decision": "promote",
