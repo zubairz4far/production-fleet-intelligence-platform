@@ -57,14 +57,36 @@ def build_parser() -> argparse.ArgumentParser:
     mobility.add_argument("--test-fraction", type=float, default=0.20)
     mobility.add_argument("--vehicle-count", type=int, default=3)
     mobility.add_argument("--vehicle-capacity", type=int, default=6)
+
+    serve = subparsers.add_parser("serve", help="Serve the promoted ETA artifact over FastAPI")
+    serve.add_argument("--model-path", required=True)
+    serve.add_argument("--host", default="0.0.0.0")
+    serve.add_argument("--port", type=int, default=8000)
+
+    register = subparsers.add_parser(
+        "register",
+        help="Log ETA model/evaluation lineage to MLflow and optionally register the model",
+    )
+    register.add_argument("--model-path", required=True)
+    register.add_argument("--evaluation-report", required=True)
+    register.add_argument("--tracking-uri")
+    register.add_argument("--experiment", default="fleet-intelligence-eta")
+    register.add_argument("--registered-model-name", default="fleet-intelligence-eta")
+
+    consume = subparsers.add_parser(
+        "consume",
+        help="Consume Kafka ETA events and score them with the promoted artifact",
+    )
+    consume.add_argument("--model-path", required=True)
+    consume.add_argument("--bootstrap-servers", required=True)
+    consume.add_argument("--topic", default="fleet.eta.requests")
+    consume.add_argument("--group-id", default="fleet-intelligence-eta-v0.5")
     return parser
 
 
-def main() -> None:
-    args = build_parser().parse_args()
-
+def _run_evaluation(args: argparse.Namespace) -> dict[str, object]:
     if args.command == "eta-routing":
-        report = evaluate_mobility_release(
+        return evaluate_mobility_release(
             pd.read_csv(args.trips),
             pd.read_csv(args.stops),
             dev_fraction=args.dev_fraction,
@@ -73,34 +95,83 @@ def main() -> None:
             vehicle_capacity=args.vehicle_capacity,
             artifact_dir=args.artifact_dir,
         )
-    else:
-        frame = pd.read_csv(args.data)
-        if args.command == "train":
-            _, report = train_baseline(
-                frame,
-                test_fraction=args.test_fraction,
-                false_negative_cost=args.false_negative_cost,
-                false_positive_cost=args.false_positive_cost,
-            )
-        elif args.command == "compare":
-            report = compare_models(
-                frame,
-                dev_fraction=args.dev_fraction,
-                test_fraction=args.test_fraction,
-                false_negative_cost=args.false_negative_cost,
-                false_positive_cost=args.false_positive_cost,
-                artifact_dir=args.artifact_dir,
-            )
-        else:
-            report = evaluate_anomaly_detection(
-                frame,
-                dev_fraction=args.dev_fraction,
-                test_fraction=args.test_fraction,
-                false_negative_cost=args.false_negative_cost,
-                false_positive_cost=args.false_positive_cost,
-                artifact_dir=args.artifact_dir,
-            )
 
+    frame = pd.read_csv(args.data)
+    if args.command == "train":
+        _, report = train_baseline(
+            frame,
+            test_fraction=args.test_fraction,
+            false_negative_cost=args.false_negative_cost,
+            false_positive_cost=args.false_positive_cost,
+        )
+        return report
+    if args.command == "compare":
+        return compare_models(
+            frame,
+            dev_fraction=args.dev_fraction,
+            test_fraction=args.test_fraction,
+            false_negative_cost=args.false_negative_cost,
+            false_positive_cost=args.false_positive_cost,
+            artifact_dir=args.artifact_dir,
+        )
+    return evaluate_anomaly_detection(
+        frame,
+        dev_fraction=args.dev_fraction,
+        test_fraction=args.test_fraction,
+        false_negative_cost=args.false_negative_cost,
+        false_positive_cost=args.false_positive_cost,
+        artifact_dir=args.artifact_dir,
+    )
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+
+    if args.command == "serve":
+        import os
+
+        import uvicorn
+
+        os.environ["ETA_MODEL_PATH"] = args.model_path
+        uvicorn.run(
+            "fleet_intelligence.serving:app",
+            host=args.host,
+            port=args.port,
+            reload=False,
+        )
+        return
+
+    if args.command == "register":
+        from .mlops import log_eta_release
+
+        result = log_eta_release(
+            model_artifact=args.model_path,
+            evaluation_report=args.evaluation_report,
+            tracking_uri=args.tracking_uri,
+            experiment_name=args.experiment,
+            registered_model_name=args.registered_model_name,
+        )
+        print(json.dumps(result.__dict__, indent=2, sort_keys=True))
+        return
+
+    if args.command == "consume":
+        from .serving import EtaModelService
+        from .streaming import consume_forever, create_kafka_consumer
+
+        service = EtaModelService(args.model_path)
+        consumer = create_kafka_consumer(
+            bootstrap_servers=args.bootstrap_servers,
+            group_id=args.group_id,
+            topic=args.topic,
+        )
+        consume_forever(
+            consumer,
+            service,
+            on_prediction=lambda response: print(response.model_dump_json()),
+        )
+        return
+
+    report = _run_evaluation(args)
     write_report(report, args.report)
     print(json.dumps(report, indent=2, sort_keys=True))
 
