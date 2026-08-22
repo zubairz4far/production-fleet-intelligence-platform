@@ -16,14 +16,38 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      - uses: hashicorp/setup-terraform@v3
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,mlops]"
       - name: Lint
         run: ruff check .
       - name: Tests
         run: pytest -q
+      - name: Validate container definition and runtime
+        run: |
+          docker compose config --quiet
+          docker build -t fleet-intelligence:ci .
+          docker run -d --name fleet-intelligence-ci -p 18000:8000 fleet-intelligence:ci
+          trap 'docker rm -f fleet-intelligence-ci >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:18000/health >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = "1"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18000/ready)" = "503"
+          docker rm -f fleet-intelligence-ci >/dev/null
+          trap - EXIT
+      - name: Validate Terraform
+        run: |
+          terraform -chdir=infra/terraform fmt -check
+          terraform -chdir=infra/terraform init -backend=false
+          terraform -chdir=infra/terraform validate
       - name: Generate deterministic CI dataset
         run: >-
           python scripts/generate_synthetic_fleet.py
@@ -154,13 +178,51 @@ jobs:
           assert report['release_gate']['decision'] == 'promote'
           assert Path('/tmp/mobility/eta/eta_hist_gradient_boosting.joblib').exists()
           assert Path('/tmp/mobility/eta/eta_metadata.json').exists()
-          print(json.dumps({
-              'eta_baseline': eta['baseline']['test_metrics'],
-              'eta_candidate': eta['candidate']['test_metrics'],
-              'eta_promotion': eta['promotion'],
-              'routing_baseline': routing['baseline']['metrics'],
-              'routing_candidate': routing['candidate']['metrics'],
-              'routing_promotion': routing['promotion'],
-              'release_gate': report['release_gate'],
-          }, indent=2))
           PY
+      - name: Validate MLflow tracking and registry integration
+        run: |
+          python -m fleet_intelligence.cli register \
+            --model-path /tmp/mobility/eta/eta_hist_gradient_boosting.joblib \
+            --evaluation-report /tmp/mobility_report_v0.4.json \
+            --tracking-uri sqlite:////tmp/fleet-mlflow.db \
+            --experiment fleet-intelligence-ci \
+            --registered-model-name fleet-intelligence-eta-ci \
+            > /tmp/mlflow_registration.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          import mlflow
+          import pandas as pd
+          from mlflow import MlflowClient
+
+          tracking_uri = 'sqlite:////tmp/fleet-mlflow.db'
+          mlflow.set_tracking_uri(tracking_uri)
+          result = json.loads(Path('/tmp/mlflow_registration.json').read_text())
+          assert result['run_id']
+          assert result['model_uri']
+          client = MlflowClient(tracking_uri=tracking_uri)
+          experiment = client.get_experiment_by_name('fleet-intelligence-ci')
+          assert experiment is not None
+          runs = client.search_runs([experiment.experiment_id])
+          assert len(runs) == 1
+          versions = client.search_model_versions("name='fleet-intelligence-eta-ci'")
+          assert len(versions) == 1
+          assert versions[0].run_id == result['run_id']
+          loaded = mlflow.sklearn.load_model(result['model_uri'])
+          features = [
+              'planned_distance_km', 'great_circle_km', 'detour_ratio',
+              'traffic_index', 'weather_severity', 'vehicle_load_kg',
+              'stops_remaining', 'hour_sin', 'hour_cos', 'dow_sin',
+              'dow_cos', 'bearing_sin', 'bearing_cos',
+          ]
+          sample = pd.DataFrame([{feature: 0.0 for feature in features}])
+          for feature in ('planned_distance_km', 'great_circle_km', 'detour_ratio', 'traffic_index'):
+              sample.loc[0, feature] = 1.0
+          prediction = loaded.predict(sample)
+          assert len(prediction) == 1
+          model_info = mlflow.models.get_model_info(result['model_uri'])
+          assert model_info.signature is not None
+          PY
+      - name: Validate Kafka client import
+        run: python -c "import confluent_kafka; print(confluent_kafka.version())"

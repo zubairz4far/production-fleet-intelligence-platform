@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleet-eta-api
+  labels:
+    app: fleet-eta-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fleet-eta-api
+  template:
+    metadata:
+      labels:
+        app: fleet-eta-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ghcr.io/zubairz4far/production-fleet-intelligence-platform:v0.5.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: ETA_MODEL_PATH
+              value: /models/eta_hist_gradient_boosting.joblib
+          volumeMounts:
+            - name: eta-model
+              mountPath: /models
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: eta-model
+          persistentVolumeClaim:
+            claimName: fleet-eta-models

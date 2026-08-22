@@ -7,7 +7,7 @@ import pandas as pd
 
 EARTH_RADIUS_KM = 6371.0088
 ETA_TARGET = "actual_travel_minutes"
-ETA_REQUIRED_COLUMNS = (
+ETA_INFERENCE_REQUIRED_COLUMNS = (
     "trip_id",
     "timestamp",
     "origin_lat",
@@ -19,8 +19,8 @@ ETA_REQUIRED_COLUMNS = (
     "weather_severity",
     "vehicle_load_kg",
     "stops_remaining",
-    ETA_TARGET,
 )
+ETA_REQUIRED_COLUMNS = (*ETA_INFERENCE_REQUIRED_COLUMNS, ETA_TARGET)
 ETA_FEATURE_COLUMNS = (
     "planned_distance_km",
     "great_circle_km",
@@ -85,8 +85,9 @@ def initial_bearing_radians(
     return np.arctan2(y, x)
 
 
-def validate_eta_dataset(frame: pd.DataFrame) -> pd.DataFrame:
-    missing = [column for column in ETA_REQUIRED_COLUMNS if column not in frame.columns]
+def _validate_eta_inputs(frame: pd.DataFrame, *, require_target: bool) -> pd.DataFrame:
+    required = ETA_REQUIRED_COLUMNS if require_target else ETA_INFERENCE_REQUIRED_COLUMNS
+    missing = [column for column in required if column not in frame.columns]
     if missing:
         raise ValueError(f"Missing ETA-dataset columns: {missing}")
 
@@ -94,7 +95,7 @@ def validate_eta_dataset(frame: pd.DataFrame) -> pd.DataFrame:
     data["trip_id"] = data["trip_id"].astype(str)
     data["timestamp"] = pd.to_datetime(data["timestamp"], utc=True, errors="raise")
 
-    numeric = [column for column in ETA_REQUIRED_COLUMNS if column not in {"trip_id", "timestamp"}]
+    numeric = [column for column in required if column not in {"trip_id", "timestamp"}]
     for column in numeric:
         data[column] = pd.to_numeric(data[column], errors="raise")
 
@@ -107,7 +108,7 @@ def validate_eta_dataset(frame: pd.DataFrame) -> pd.DataFrame:
 
     if (data["planned_distance_km"] <= 0).any():
         raise ValueError("planned_distance_km must be positive")
-    if (data[ETA_TARGET] <= 0).any():
+    if require_target and (data[ETA_TARGET] <= 0).any():
         raise ValueError(f"{ETA_TARGET} must be positive")
     if (data["traffic_index"] <= 0).any():
         raise ValueError("traffic_index must be positive")
@@ -119,8 +120,15 @@ def validate_eta_dataset(frame: pd.DataFrame) -> pd.DataFrame:
     return data.sort_values("timestamp", kind="stable").reset_index(drop=True)
 
 
-def build_eta_features(frame: pd.DataFrame) -> pd.DataFrame:
-    data = validate_eta_dataset(frame)
+def validate_eta_dataset(frame: pd.DataFrame) -> pd.DataFrame:
+    return _validate_eta_inputs(frame, require_target=True)
+
+
+def validate_eta_inference_dataset(frame: pd.DataFrame) -> pd.DataFrame:
+    return _validate_eta_inputs(frame, require_target=False)
+
+
+def _eta_feature_frame(data: pd.DataFrame) -> pd.DataFrame:
     great_circle = haversine_km(
         data["origin_lat"],
         data["origin_lon"],
@@ -137,7 +145,7 @@ def build_eta_features(frame: pd.DataFrame) -> pd.DataFrame:
     hour = data["timestamp"].dt.hour + data["timestamp"].dt.minute / 60.0
     dow = data["timestamp"].dt.dayofweek
 
-    features = pd.DataFrame(
+    return pd.DataFrame(
         {
             "planned_distance_km": data["planned_distance_km"],
             "great_circle_km": great_circle,
@@ -154,6 +162,16 @@ def build_eta_features(frame: pd.DataFrame) -> pd.DataFrame:
             "bearing_cos": np.cos(bearing),
         }
     )
+
+
+def build_eta_inference_features(frame: pd.DataFrame) -> pd.DataFrame:
+    data = validate_eta_inference_dataset(frame)
+    return _eta_feature_frame(data).loc[:, list(ETA_FEATURE_COLUMNS)]
+
+
+def build_eta_features(frame: pd.DataFrame) -> pd.DataFrame:
+    data = validate_eta_dataset(frame)
+    features = _eta_feature_frame(data)
     output = pd.concat(
         [data[["trip_id", "timestamp", ETA_TARGET]], features],
         axis=1,
