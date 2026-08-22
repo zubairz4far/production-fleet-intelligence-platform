@@ -29,8 +29,10 @@ def generate(rows: int = 1200, vehicles: int = 60, seed: int = 42) -> pd.DataFra
     vibration = 1.7 + 0.0055 * hours_since_service + 0.5 * age + rng.normal(0, 0.45, rows)
     fuel_rate = 7.5 + 0.000035 * mileage + 0.7 * age + rng.normal(0, 0.8, rows)
 
+    # CI fixture only: preserve class imbalance while keeping enough positive events
+    # in a chronological holdout for stable probability-metric regression tests.
     logit = (
-        -7.0
+        -4.5
         + 0.038 * (engine_temp - 90)
         - 0.010 * (oil_pressure - 260)
         - 0.80 * (battery_voltage - 12.7)
