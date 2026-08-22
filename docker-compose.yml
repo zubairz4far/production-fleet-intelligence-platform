@@ -1,0 +1,10 @@
+services:
+  eta-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      ETA_MODEL_PATH: /models/eta_hist_gradient_boosting.joblib
+    volumes:
+      - ./artifacts/mobility/eta:/models:ro
+    restart: unless-stopped
