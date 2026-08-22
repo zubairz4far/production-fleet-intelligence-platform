@@ -1,59 +1,88 @@
 # Production Fleet Intelligence Platform
 
-Production-oriented machine-learning platform for fleet operations: leakage-safe vehicle failure prediction first, followed by ETA prediction, fuel forecasting, geospatial optimization, streaming telemetry, and monitored deployment.
+[![CI](https://github.com/zubairz4far/production-fleet-intelligence-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/zubairz4far/production-fleet-intelligence-platform/actions/workflows/ci.yml)
+
+Production-oriented machine-learning platform for fleet operations: leakage-safe vehicle failure prediction first, followed by telemetry anomaly detection, ETA prediction, geospatial optimization, streaming data, and monitored deployment.
 
 ## Status
 
-**v0.1 — reliability baseline.** The first milestone intentionally starts with one measurable problem: predict whether a vehicle will require maintenance within a future horizon without leaking future telemetry into training.
+**v0.2 — calibrated model promotion pipeline.**
 
-The repository is being built around reproducible evaluation rather than demo accuracy. Model promotion will require a frozen test set, business-aware thresholds, calibration checks, and regression gates.
+The project now compares a balanced Logistic Regression baseline with a balanced histogram gradient-boosting candidate using a chronological **train → development → untouched test** protocol.
+
+Model complexity alone does not justify promotion. Calibration and operating thresholds are fixed from the development window before the test set is evaluated.
+
+## Measured v0.2 CI result
+
+The deterministic synthetic CI fixture produced:
+
+| Model | PR-AUC | ROC-AUC | Brier | Recall | Business cost |
+|---|---:|---:|---:|---:|---:|
+| Logistic Regression baseline | 0.373 | **0.884** | 0.140 | **0.696** | **63** |
+| Calibrated HistGradientBoosting | **0.391** | 0.878 | **0.071** | 0.609 | 76 |
+
+**Promotion decision: REJECT.**
+
+The candidate improved PR-AUC and probability calibration, but it increased the configured business cost from **63 to 76**, so the promotion gate rejected it.
+
+This is intentional evidence that the project does not equate a stronger model class or a better single metric with a production improvement.
+
+> These scores come from a deterministic synthetic software-regression fixture. They are **not** evidence of real fleet performance.
+
+Machine-readable evidence: [`evals/results/model_comparison_v0.2_synthetic.json`](evals/results/model_comparison_v0.2_synthetic.json).
 
 ## Why this project exists
 
-Fleet ML is not one model. A useful production system eventually needs several connected capabilities:
+Fleet ML is not one model. A useful production system eventually needs connected capabilities:
 
 - vehicle failure-risk prediction
+- telemetry anomaly detection
 - ETA and delay prediction
 - fuel-consumption forecasting
-- anomaly detection over telemetry
 - geospatial route optimization
 - batch and online inference
 - drift and data-quality monitoring
 - experiment/model tracking
 - streaming telemetry ingestion
 
-The first release establishes the evaluation discipline and training contract that later capabilities will reuse.
+The repository is built around evaluation and operational trade-offs rather than demo accuracy.
 
-## v0.1 architecture
+## v0.2 architecture
 
 ```text
-CSV telemetry/history
+Fleet telemetry/history
         |
         v
 schema + leakage checks
         |
         v
-time-aware split
+chronological split
         |
-        v
-feature pipeline
-        |
-        v
-Logistic Regression baseline
-        |
-        v
-probability calibration metrics
-        |
-        v
-business-cost threshold search
-        |
-        v
-JSON benchmark report
+        +-------------------+
+        |                   |
+        v                   v
+Logistic baseline     HistGradientBoosting
+        |                   |
+        |             Platt calibration
+        |                   |
+        +---------+---------+
+                  |
+                  v
+       development threshold search
+                  |
+                  v
+          untouched test window
+                  |
+                  v
+      PR-AUC / Brier / business cost
+                  |
+                  v
+           PROMOTE or REJECT
 ```
 
 ## Dataset contract
 
-The baseline expects one row per vehicle observation with at least:
+The failure-risk task expects one row per vehicle observation with at least:
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -68,24 +97,34 @@ The baseline expects one row per vehicle observation with at least:
 | `hours_since_service` | numeric | Operating hours since last service |
 | `failure_within_horizon` | 0/1 | Label known only after the prediction horizon |
 
-A real fleet dataset may contain additional fields. The baseline deliberately avoids identifiers and post-event fields as model features.
+Identifiers, timestamps, labels, and post-event maintenance fields are not model features.
 
-## Leakage policy
+## Evaluation discipline
 
-Random row splitting is not allowed for the benchmark. Observations are sorted by `timestamp`; the newest partition is held out. This reduces temporal leakage and better approximates future deployment.
+Random row splitting is prohibited for reported promotion results.
 
-The following are never model features:
+v0.2 uses:
 
-- `vehicle_id`
-- `timestamp`
-- target labels
-- maintenance outcome fields created after the prediction time
+```text
+oldest                                               newest
+|---------------- train ----------------|--- dev ---|--- test ---|
+```
 
-Future versions will add group-aware temporal evaluation so repeated observations from the same vehicle can be stress-tested separately.
+- **train** fits model parameters;
+- **development** fits Platt calibration and selects business-cost thresholds;
+- **test** is evaluated after those choices are fixed.
+
+Promotion currently requires all of:
+
+1. candidate PR-AUC >= baseline PR-AUC;
+2. candidate Brier score <= baseline Brier score;
+3. candidate configured business cost <= baseline business cost.
+
+See [`docs/evaluation-policy.md`](docs/evaluation-policy.md) and [`docs/model-promotion-v0.2.md`](docs/model-promotion-v0.2.md).
 
 ## Metrics
 
-Accuracy is not a release metric because maintenance failures are typically imbalanced. The benchmark records:
+Accuracy is intentionally not a release metric. Reports include:
 
 - PR-AUC
 - ROC-AUC
@@ -94,9 +133,37 @@ Accuracy is not a release metric because maintenance failures are typically imba
 - F1
 - Brier score
 - false positives / false negatives
-- threshold selected by business cost
+- business-cost operating point
+- development-selected threshold
 
-The default threshold objective makes a false negative five times more expensive than a false positive. This is configurable and is not presented as a universal fleet cost model.
+The default example weights a false negative at 5× a false positive. This is configurable and is not presented as universal fleet economics.
+
+## Model artifacts
+
+The v0.2 comparison can persist:
+
+```text
+artifacts/models/
+├── baseline_logistic.joblib
+├── candidate_calibrated.joblib
+└── metadata.json
+```
+
+The candidate artifact contains the fitted gradient-boosting model, Platt calibrator, selected threshold, and feature contract.
+
+Generated artifacts are ignored by Git.
+
+## Post-test interpretation
+
+After the promotion decision, the pipeline computes permutation importance using average precision scoring. It is explicitly marked as **post-test analysis** and is not used for model selection.
+
+On the synthetic CI fixture, the three largest average PR-AUC drops were associated with:
+
+1. `hours_since_service`
+2. `vibration_rms`
+3. `oil_pressure_kpa`
+
+Those values reflect only the synthetic generator and must not be interpreted as real-world fleet feature importance.
 
 ## Quick start
 
@@ -106,48 +173,66 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 
 python scripts/generate_synthetic_fleet.py --output data/synthetic_fleet.csv
+
+python -m fleet_intelligence.cli compare \
+  --data data/synthetic_fleet.csv \
+  --report artifacts/model_comparison_v0.2.json \
+  --artifact-dir artifacts/models
+```
+
+Compatibility v0.1 baseline:
+
+```bash
 python -m fleet_intelligence.cli train \
   --data data/synthetic_fleet.csv \
   --report artifacts/baseline_report.json
 ```
 
-Run tests:
+Run quality gates:
 
 ```bash
-pytest -q
 ruff check .
+pytest -q
 ```
 
-## Planned progression
+## Progression
 
-### v0.1 — failure-risk baseline
+### v0.1 — failure-risk baseline ✅
 
 - dataset/schema contract
-- time-aware split
+- chronological holdout
 - leakage-safe preprocessing
-- Logistic Regression baseline
+- balanced Logistic Regression
 - business-cost threshold optimization
-- reproducible JSON evaluation report
+- reproducible JSON report
 - tests + CI
 
-### v0.2 — stronger tabular ML
+### v0.2 — calibrated model promotion ✅
 
-- gradient-boosted candidate model
-- probability calibration
-- frozen holdout promotion gate
-- SHAP/error analysis
-- model artifact metadata
+- chronological train/dev/test split
+- HistGradientBoosting candidate
+- balanced sample weighting
+- Platt probability calibration
+- development-only threshold selection
+- untouched test promotion gate
+- PR-AUC / Brier / business-cost criteria
+- persisted model artifacts + metadata
+- post-test permutation importance
+- 9-test regression suite + CI
 
 ### v0.3 — telemetry and anomaly detection
 
-- rolling/windowed features
+- rolling/windowed telemetry features
 - streaming-compatible feature transforms
-- anomaly detector
+- anomaly detection baseline + candidate
+- feature-missingness robustness
 - drift/data-quality reports
+- vehicle-group temporal stress test
 
 ### v0.4 — ETA + geospatial optimization
 
 - ETA/delay model
+- geospatial feature pipeline
 - route graph representation
 - OR-Tools constrained routing benchmark
 
@@ -163,7 +248,7 @@ ruff check .
 
 ## Portfolio target
 
-The final platform should demonstrate classical ML, time-series features, anomaly detection, geospatial ML, optimization, streaming/data engineering, MLOps, cloud deployment, and measurable operational trade-offs in one coherent system.
+The final platform should demonstrate classical ML, time-series feature engineering, anomaly detection, geospatial ML, optimization, streaming/data engineering, MLOps, cloud deployment, and measurable operational trade-offs in one coherent system.
 
 ## License
 
