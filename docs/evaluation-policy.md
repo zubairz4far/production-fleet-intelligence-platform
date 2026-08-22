@@ -66,6 +66,26 @@ For example, the v0.3 synthetic test revealed material recall degradation under 
 
 This keeps model governance auditable and prevents repeated optimization against the same test labels.
 
+## v0.4 ETA and routing contract
+
+The ETA task uses chronological train/development/test partitions. The target `actual_travel_minutes` is excluded from features. Dispatch-time features include planned and Haversine distance, detour ratio, traffic, weather, vehicle load, remaining stops, cyclic time features, and route bearing.
+
+The ETA baseline estimates a median effective speed from training data only. The fixed histogram-gradient-boosting candidate is promoted only if all predeclared conditions hold on the untouched test window:
+
+1. MAE improves versus the baseline;
+2. RMSE improves versus the baseline;
+3. p90 absolute error improves versus the baseline.
+
+The routing task is evaluated separately from predictive ETA quality. Its deterministic baseline greedily selects the nearest feasible stop. The OR-Tools candidate must satisfy the declared capacitated vehicle-routing constraints and is promoted only if:
+
+1. every stop is served;
+2. no vehicle capacity is violated;
+3. total geometric route distance does not exceed the greedy baseline.
+
+The overall v0.4 release gate passes only if both the ETA and routing gates pass.
+
+The v0.4 synthetic routing fixture uses Haversine geometry rather than a live road graph. It does not claim road-network optimality, live traffic savings, time-window feasibility, or real fleet cost reduction.
+
 ## Business-cost thresholds
 
 Operating thresholds may be selected independently from 0.5 by minimizing a configurable cost:
@@ -103,6 +123,7 @@ A synthetic fixture may test:
 - promotion-rule behavior;
 - missingness robustness;
 - drift detectors;
+- optimization constraint handling;
 - command-line and CI integration.
 
 It cannot establish real-world generalization.
@@ -132,6 +153,7 @@ Future releases should extend evaluation with:
 - realistic sensor outage patterns;
 - cost sensitivity analysis;
 - delayed-label performance monitoring;
+- road-network travel matrices and service-time constraints;
 - new locked holdouts for stricter robustness gates.
 
 The goal is an auditable promotion process in which evaluation constraints become stricter as the platform becomes more production-like.
