@@ -1,0 +1,73 @@
+{
+  "project": "production-fleet-intelligence-platform",
+  "version": "0.5.0",
+  "evidence_type": "ci_integration_validation",
+  "production_deployment_evidence": false,
+  "source_model_evidence": "evals/results/mobility_v0.4_synthetic.json",
+  "ci": {
+    "python": "3.11.16",
+    "pytest": "passed",
+    "ruff": "passed",
+    "docker_compose_config": "passed",
+    "docker_build": "passed",
+    "container_runtime_smoke": {
+      "status": "passed",
+      "health_without_model_http_status": 200,
+      "ready_without_model_http_status": 503
+    },
+    "terraform": {
+      "fmt": "passed",
+      "init_backend_false": "passed",
+      "validate": "passed",
+      "kubernetes_provider": "2.38.0"
+    },
+    "v0_1_compatibility": "passed",
+    "v0_2_evaluation": "passed",
+    "v0_3_evaluation": "passed",
+    "v0_4_evaluation": "passed",
+    "mlflow": {
+      "version": "3.15.1",
+      "tracking": "passed",
+      "registry": "passed",
+      "registered_model": "fleet-intelligence-eta-ci",
+      "model_version_created": 1,
+      "serialization": "skops",
+      "signature_present": true,
+      "registered_model_reload_prediction": "passed"
+    },
+    "kafka": {
+      "client_import": "passed",
+      "client_version": "2.15.0"
+    }
+  },
+  "serving_contract": {
+    "endpoints": [
+      "/health",
+      "/ready",
+      "/predict",
+      "/metrics"
+    ],
+    "feature_contract_validation": true,
+    "fail_closed_readiness": true,
+    "prometheus_metrics": true
+  },
+  "streaming_contract": {
+    "manual_commit": true,
+    "commit_after_successful_scoring": true,
+    "invalid_event_not_committed": true
+  },
+  "infrastructure_scope": {
+    "docker": true,
+    "kubernetes_manifests": true,
+    "terraform_kubernetes_resources": true,
+    "live_cluster_provisioned": false
+  },
+  "limitations": [
+    "CI validates integration mechanics, not a live production deployment.",
+    "No production API latency, throughput, availability, or SLO evidence is claimed.",
+    "Kafka client and worker behavior are validated without a live Kafka broker.",
+    "MLflow registry behavior is validated against a local SQLite tracking store, not a shared production server.",
+    "Kubernetes and Terraform configuration are validated without applying to a live cluster.",
+    "v0.4 model and routing metrics remain synthetic software-regression evidence rather than production performance evidence."
+  ]
+}
