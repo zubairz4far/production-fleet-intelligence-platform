@@ -1,0 +1,137 @@
+{
+  "project": "production-fleet-intelligence-platform",
+  "version": "0.3.0",
+  "evidence_type": "synthetic_ci_software_regression",
+  "production_evidence": false,
+  "fixture": {
+    "rows": 1200,
+    "vehicles": 60,
+    "anomaly_rate": 0.04833333333333333,
+    "seed": 42,
+    "injection_policy": "anomalies injected only into development and test windows"
+  },
+  "feature_engineering": {
+    "feature_count": 37,
+    "causal_rolling_policy": "shift(1) before rolling statistics per vehicle",
+    "windows": [3, 6]
+  },
+  "split": {
+    "strategy": "chronological_train_dev_test",
+    "train_rows": 720,
+    "dev_rows": 240,
+    "test_rows": 240,
+    "train_end": "2025-06-29T18:00:00+00:00",
+    "dev_start": "2025-06-30T00:00:00+00:00",
+    "dev_end": "2025-08-28T18:00:00+00:00",
+    "test_start": "2025-08-29T00:00:00+00:00"
+  },
+  "threshold_policy": {
+    "selection_partition": "development",
+    "false_negative_cost": 8.0,
+    "false_positive_cost": 1.0
+  },
+  "baseline": {
+    "model": "robust_zscore_95th_percentile",
+    "threshold_selected_on_dev": 0.36999999999999994,
+    "test_metrics": {
+      "pr_auc": 0.1972898767725414,
+      "roc_auc": 0.6878574930544207,
+      "precision": 0.16265060240963855,
+      "recall": 0.9310344827586207,
+      "f1": 0.27692307692307694,
+      "brier_score": 0.3170665982178439,
+      "false_positives": 139,
+      "false_negatives": 2,
+      "business_cost": 155.0
+    }
+  },
+  "candidate": {
+    "model": "isolation_forest_300",
+    "threshold_selected_on_dev": 0.3999999999999999,
+    "test_metrics": {
+      "pr_auc": 0.20960360777547793,
+      "roc_auc": 0.6409544043144305,
+      "precision": 0.16184971098265896,
+      "recall": 0.9655172413793104,
+      "f1": 0.27722772277227725,
+      "brier_score": 0.31520542262451845,
+      "false_positives": 145,
+      "false_negatives": 1,
+      "business_cost": 153.0
+    }
+  },
+  "promotion": {
+    "decision": "promote",
+    "test_observed_once": true,
+    "criteria": {
+      "pr_auc_non_regression": true,
+      "business_cost_non_regression": true,
+      "missingness_pr_auc_drop_lte_0_10": true
+    }
+  },
+  "robustness": {
+    "missing_sensor_families": {
+      "missing_rate_per_sensor_family": 0.1,
+      "clean_pr_auc": 0.20960360777547793,
+      "masked_pr_auc": 0.20066662951584374,
+      "pr_auc_drop": 0.008936978259634187,
+      "clean_recall": 0.9655172413793104,
+      "masked_recall": 0.7931034482758621,
+      "recall_drop": 0.1724137931034483,
+      "masked_business_cost": 177.0,
+      "warning": "Recall degradation is recorded but was not part of the predeclared v0.3 promotion gate. Tightening that gate requires a new untouched holdout."
+    },
+    "unseen_vehicle": {
+      "available": true,
+      "held_out_vehicle_count": 12,
+      "held_out_vehicle_fraction": 0.2,
+      "test_rows": 48,
+      "metrics": {
+        "pr_auc": 0.28615288220551377,
+        "roc_auc": 0.7906976744186047,
+        "precision": 0.18518518518518517,
+        "recall": 1.0,
+        "f1": 0.3125,
+        "brier_score": 0.26269706715434316,
+        "false_positives": 22,
+        "false_negatives": 0,
+        "business_cost": 22.0,
+        "threshold": 0.43999999999999995
+      }
+    }
+  },
+  "drift": {
+    "method": "population_stability_index_train_reference",
+    "high_drift_threshold": 0.25,
+    "clean_test_psi": {
+      "engine_temp_c": 0.0672757309706569,
+      "oil_pressure_kpa": 0.02464680903962632,
+      "battery_voltage": 0.08975982491438866,
+      "vibration_rms": 0.04399877294608405,
+      "fuel_rate_lph": 0.45592707006570865
+    },
+    "clean_max_psi": 0.45592707006570865,
+    "simulated_drift_psi": {
+      "engine_temp_c": 5.519571176092275,
+      "oil_pressure_kpa": 1.6292816209861756,
+      "battery_voltage": 2.786118628035637,
+      "vibration_rms": 1.6681832627350037,
+      "fuel_rate_lph": 0.45592707006570865
+    },
+    "simulated_max_psi": 5.519571176092275,
+    "simulated_high_drift_features": [
+      "engine_temp_c",
+      "oil_pressure_kpa",
+      "battery_voltage",
+      "vibration_rms",
+      "fuel_rate_lph"
+    ],
+    "note": "The synthetic clean test window already shows high fuel-rate PSI because the generator contains temporal mileage/fuel structure."
+  },
+  "limitations": [
+    "Synthetic scores are not evidence of real fleet performance.",
+    "Development labels are used for score calibration and threshold selection.",
+    "PSI indicates distribution shift but not causal model degradation.",
+    "Real deployment requires sensor cadence and maintenance-event semantics."
+  ]
+}
