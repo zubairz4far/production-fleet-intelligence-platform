@@ -1,0 +1,114 @@
+{
+  "project": "production-fleet-intelligence-platform",
+  "version": "0.4.0",
+  "evidence_type": "synthetic_ci_software_regression",
+  "production_evidence": false,
+  "fixture": {
+    "seed": 84,
+    "eta_rows": 1600,
+    "routing_stops_excluding_depot": 18,
+    "vehicle_count": 3,
+    "vehicle_capacity": 6,
+    "total_demand_units": 18
+  },
+  "eta": {
+    "feature_count": 13,
+    "split": {
+      "strategy": "chronological_train_dev_test",
+      "train_rows": 960,
+      "dev_rows": 320,
+      "test_rows": 320,
+      "train_end": "2025-03-21T22:00:00+00:00",
+      "dev_start": "2025-03-22T00:00:00+00:00",
+      "dev_end": "2025-04-17T14:00:00+00:00",
+      "test_start": "2025-04-17T16:00:00+00:00"
+    },
+    "baseline": {
+      "model": "train_median_effective_speed",
+      "median_speed_kph": 33.166973649519136,
+      "test_metrics": {
+        "mae_minutes": 7.787422497137105,
+        "rmse_minutes": 10.201215270376148,
+        "p90_absolute_error_minutes": 16.32230444186976,
+        "mean_bias_minutes": -0.6854631305283652
+      }
+    },
+    "candidate": {
+      "model": "hist_gradient_boosting_regressor",
+      "test_metrics": {
+        "mae_minutes": 2.8878848528504726,
+        "rmse_minutes": 3.8923093349435565,
+        "p90_absolute_error_minutes": 5.803958144637145,
+        "mean_bias_minutes": -0.10614997348287818
+      }
+    },
+    "promotion": {
+      "decision": "promote",
+      "test_observed_once": true,
+      "criteria": {
+        "mae_improves": true,
+        "rmse_improves": true,
+        "p90_error_improves": true
+      }
+    }
+  },
+  "routing": {
+    "distance_model": "haversine_geometric_distance",
+    "constraints": [
+      "single_depot",
+      "vehicle_capacity",
+      "serve_each_stop_once"
+    ],
+    "baseline": {
+      "solver": "deterministic_nearest_feasible_greedy",
+      "metrics": {
+        "total_distance_km": 68.3657342684624,
+        "max_route_distance_km": 25.2060661825788,
+        "served_stops": 18,
+        "unserved_stops": 0,
+        "capacity_violation_units": 0
+      }
+    },
+    "candidate": {
+      "solver": "ortools_guided_local_search",
+      "metrics": {
+        "total_distance_km": 63.66596073546776,
+        "max_route_distance_km": 22.581814686631347,
+        "served_stops": 18,
+        "unserved_stops": 0,
+        "capacity_violation_units": 0
+      }
+    },
+    "promotion": {
+      "decision": "promote",
+      "distance_improvement_percent": 6.874457772280053,
+      "criteria": {
+        "all_stops_served": true,
+        "capacity_satisfied": true,
+        "distance_non_regression": true
+      }
+    }
+  },
+  "release_gate": {
+    "decision": "promote",
+    "criteria": {
+      "eta_gate_passed": true,
+      "routing_gate_passed": true
+    }
+  },
+  "ci": {
+    "pytest": "20 passed in 8.03s",
+    "lint": "passed",
+    "v0_1_compatibility": "passed",
+    "v0_2_evaluation": "passed",
+    "v0_3_evaluation": "passed",
+    "v0_4_evaluation": "passed"
+  },
+  "limitations": [
+    "Synthetic ETA outcomes are software-regression evidence only, not real fleet accuracy.",
+    "Synthetic routing coordinates are not a live road network.",
+    "Routing distance is Haversine geometry rather than road travel distance.",
+    "v0.4 enforces vehicle capacity but does not implement delivery time windows.",
+    "The measured 6.87% distance reduction is a deterministic fixture result, not a production savings claim."
+  ]
+}
