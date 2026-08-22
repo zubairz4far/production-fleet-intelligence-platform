@@ -47,6 +47,8 @@ def select_threshold_by_cost(
     if false_negative_cost <= 0 or false_positive_cost <= 0:
         raise ValueError("Business costs must be positive")
 
+    y_true = np.asarray(y_true, dtype=int)
+    probabilities = np.asarray(probabilities, dtype=float)
     best: ThresholdResult | None = None
     for threshold in np.linspace(0.05, 0.95, 91):
         predictions = probabilities >= threshold
@@ -62,9 +64,11 @@ def select_threshold_by_cost(
     return best
 
 
-def evaluate_probabilities(
+def evaluate_at_threshold(
     y_true: np.ndarray,
     probabilities: np.ndarray,
+    *,
+    threshold: float,
     false_negative_cost: float = 5.0,
     false_positive_cost: float = 1.0,
 ) -> ClassificationMetrics:
@@ -73,14 +77,15 @@ def evaluate_probabilities(
 
     if len(np.unique(y_true)) < 2:
         raise ValueError("Evaluation requires both positive and negative labels")
+    if not 0.0 < threshold < 1.0:
+        raise ValueError("threshold must be between 0 and 1")
 
-    selected = select_threshold_by_cost(
-        y_true,
-        probabilities,
-        false_negative_cost=false_negative_cost,
-        false_positive_cost=false_positive_cost,
+    predictions = (probabilities >= threshold).astype(int)
+    false_positives = int(((predictions == 1) & (y_true == 0)).sum())
+    false_negatives = int(((predictions == 0) & (y_true == 1)).sum())
+    business_cost = (
+        false_positives * false_positive_cost + false_negatives * false_negative_cost
     )
-    predictions = (probabilities >= selected.threshold).astype(int)
 
     return ClassificationMetrics(
         pr_auc=float(average_precision_score(y_true, probabilities)),
@@ -89,8 +94,29 @@ def evaluate_probabilities(
         recall=float(recall_score(y_true, predictions, zero_division=0)),
         f1=float(f1_score(y_true, predictions, zero_division=0)),
         brier_score=float(brier_score_loss(y_true, probabilities)),
+        threshold=float(threshold),
+        false_positives=false_positives,
+        false_negatives=false_negatives,
+        business_cost=float(business_cost),
+    )
+
+
+def evaluate_probabilities(
+    y_true: np.ndarray,
+    probabilities: np.ndarray,
+    false_negative_cost: float = 5.0,
+    false_positive_cost: float = 1.0,
+) -> ClassificationMetrics:
+    selected = select_threshold_by_cost(
+        y_true,
+        probabilities,
+        false_negative_cost=false_negative_cost,
+        false_positive_cost=false_positive_cost,
+    )
+    return evaluate_at_threshold(
+        y_true,
+        probabilities,
         threshold=selected.threshold,
-        false_positives=selected.false_positives,
-        false_negatives=selected.false_negatives,
-        business_cost=selected.cost,
+        false_negative_cost=false_negative_cost,
+        false_positive_cost=false_positive_cost,
     )
