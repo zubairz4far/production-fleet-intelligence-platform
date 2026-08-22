@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import joblib
+import pandas as pd
 
 
 @dataclass(frozen=True)
@@ -41,8 +42,17 @@ def log_eta_release(
     try:
         import mlflow
         import mlflow.sklearn
+        from mlflow.models import infer_signature
     except ImportError as exc:  # pragma: no cover - exercised when optional extra is absent
         raise RuntimeError('Install the "mlops" extra to use MLflow integration') from exc
+
+    feature_names = list(bundle["features"])
+    input_example = pd.DataFrame([{feature: 0.0 for feature in feature_names}])
+    for feature in ("planned_distance_km", "great_circle_km", "detour_ratio", "traffic_index"):
+        if feature in input_example.columns:
+            input_example.loc[0, feature] = 1.0
+    example_prediction = bundle["model"].predict(input_example)
+    signature = infer_signature(input_example, example_prediction)
 
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
@@ -54,7 +64,7 @@ def log_eta_release(
                 "release_version": "0.5.0",
                 "source_evaluation_version": report.get("version", "unknown"),
                 "model_type": type(bundle["model"]).__name__,
-                "feature_count": len(bundle["features"]),
+                "feature_count": len(feature_names),
                 "evaluation_split": eta.get("split", {}).get("strategy", "unknown"),
                 "production_evidence": bool(report.get("production_evidence", False)),
             }
@@ -71,11 +81,13 @@ def log_eta_release(
             sk_model=bundle["model"],
             name="eta_model",
             registered_model_name=registered_model_name,
-            serialization_format="cloudpickle",
+            serialization_format="skops",
+            signature=signature,
+            input_example=input_example,
             metadata={
                 "source": "production-fleet-intelligence-platform",
                 "evaluation_decision": "promote",
-                "feature_contract": list(bundle["features"]),
+                "feature_contract": feature_names,
             },
         )
         return MlflowReleaseResult(
