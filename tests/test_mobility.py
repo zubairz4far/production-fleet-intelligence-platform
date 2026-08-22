@@ -3,7 +3,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from scripts.generate_synthetic_mobility import generate_eta_trips, generate_routing_stops
 from fleet_intelligence.eta import evaluate_eta_models, temporal_eta_split
 from fleet_intelligence.geospatial import (
     ETA_FEATURE_COLUMNS,
@@ -12,6 +11,7 @@ from fleet_intelligence.geospatial import (
     haversine_km,
 )
 from fleet_intelligence.routing import benchmark_routing, validate_stop_dataset
+from scripts.generate_synthetic_mobility import generate_eta_trips, generate_routing_stops
 
 
 def test_haversine_is_zero_for_same_point_and_symmetric() -> None:
