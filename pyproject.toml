@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "production-fleet-intelligence-platform"
-version = "0.3.0"
-description = "Fleet failure prediction, causal telemetry anomaly detection, and robustness evaluation."
+version = "0.4.0"
+description = "Fleet failure prediction, telemetry anomaly detection, ETA prediction, and constrained route optimization."
 requires-python = ">=3.11,<3.13"
 dependencies = [
   "numpy>=2.0,<3",
@@ -13,6 +13,7 @@ dependencies = [
   "scikit-learn>=1.5,<2",
   "pydantic>=2.9,<3",
   "joblib>=1.4,<2",
+  "ortools>=9.15,<10",
 ]
 
 [project.optional-dependencies]
