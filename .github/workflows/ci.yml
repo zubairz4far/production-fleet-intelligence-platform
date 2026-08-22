@@ -25,10 +25,24 @@ jobs:
         run: ruff check .
       - name: Tests
         run: pytest -q
-      - name: Validate container definition
+      - name: Validate container definition and runtime
         run: |
           docker compose config --quiet
           docker build -t fleet-intelligence:ci .
+          docker run -d --name fleet-intelligence-ci -p 18000:8000 fleet-intelligence:ci
+          trap 'docker rm -f fleet-intelligence-ci >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:18000/health >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = "1"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18000/ready)" = "503"
+          docker rm -f fleet-intelligence-ci >/dev/null
+          trap - EXIT
       - name: Validate Terraform
         run: |
           terraform -chdir=infra/terraform fmt -check
@@ -178,12 +192,16 @@ jobs:
           import json
           from pathlib import Path
 
+          import mlflow
+          import pandas as pd
           from mlflow import MlflowClient
 
+          tracking_uri = 'sqlite:////tmp/fleet-mlflow.db'
+          mlflow.set_tracking_uri(tracking_uri)
           result = json.loads(Path('/tmp/mlflow_registration.json').read_text())
           assert result['run_id']
           assert result['model_uri']
-          client = MlflowClient(tracking_uri='sqlite:////tmp/fleet-mlflow.db')
+          client = MlflowClient(tracking_uri=tracking_uri)
           experiment = client.get_experiment_by_name('fleet-intelligence-ci')
           assert experiment is not None
           runs = client.search_runs([experiment.experiment_id])
@@ -191,6 +209,20 @@ jobs:
           versions = client.search_model_versions("name='fleet-intelligence-eta-ci'")
           assert len(versions) == 1
           assert versions[0].run_id == result['run_id']
+          loaded = mlflow.sklearn.load_model(result['model_uri'])
+          features = [
+              'planned_distance_km', 'great_circle_km', 'detour_ratio',
+              'traffic_index', 'weather_severity', 'vehicle_load_kg',
+              'stops_remaining', 'hour_sin', 'hour_cos', 'dow_sin',
+              'dow_cos', 'bearing_sin', 'bearing_cos',
+          ]
+          sample = pd.DataFrame([{feature: 0.0 for feature in features}])
+          for feature in ('planned_distance_km', 'great_circle_km', 'detour_ratio', 'traffic_index'):
+              sample.loc[0, feature] = 1.0
+          prediction = loaded.predict(sample)
+          assert len(prediction) == 1
+          model_info = mlflow.models.get_model_info(result['model_uri'])
+          assert model_info.signature is not None
           PY
       - name: Validate Kafka client import
         run: python -c "import confluent_kafka; print(confluent_kafka.version())"
