@@ -111,12 +111,56 @@ jobs:
           assert 0.0 <= missing['recall_drop'] <= 1.0
           assert Path('/tmp/anomaly-model/anomaly_isolation_forest.joblib').exists()
           assert Path('/tmp/anomaly-model/anomaly_metadata.json').exists()
+          PY
+      - name: Generate deterministic mobility fixtures
+        run: >-
+          python scripts/generate_synthetic_mobility.py
+          --trips-output /tmp/eta_trips.csv
+          --stops-output /tmp/routing_stops.csv
+          --rows 1600
+          --stops 18
+          --seed 84
+      - name: Run v0.4 ETA and routing benchmark
+        run: >-
+          python -m fleet_intelligence.cli eta-routing
+          --trips /tmp/eta_trips.csv
+          --stops /tmp/routing_stops.csv
+          --report /tmp/mobility_report_v0.4.json
+          --artifact-dir /tmp/mobility
+          --vehicle-count 3
+          --vehicle-capacity 6
+      - name: Validate v0.4 report and artifacts
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('/tmp/mobility_report_v0.4.json').read_text())
+          assert report['version'] == '0.4.0'
+          assert report['release'] == 'eta_prediction_and_capacitated_routing'
+          eta = report['eta']
+          assert eta['split']['strategy'] == 'chronological_train_dev_test'
+          assert eta['split']['train_end'] <= eta['split']['dev_start']
+          assert eta['split']['dev_end'] <= eta['split']['test_start']
+          assert eta['promotion']['test_observed_once'] is True
+          assert eta['promotion']['decision'] == 'promote'
+          routing = report['routing']
+          assert routing['promotion']['decision'] == 'promote'
+          assert routing['candidate']['metrics']['unserved_stops'] == 0
+          assert routing['candidate']['metrics']['capacity_violation_units'] == 0
+          assert routing['candidate']['metrics']['total_distance_km'] <= (
+              routing['baseline']['metrics']['total_distance_km'] + 1e-6
+          )
+          assert report['release_gate']['decision'] == 'promote'
+          assert Path('/tmp/mobility/eta/eta_hist_gradient_boosting.joblib').exists()
+          assert Path('/tmp/mobility/eta/eta_metadata.json').exists()
           print(json.dumps({
-              'baseline': report['baseline']['test_metrics'],
-              'candidate': report['candidate']['test_metrics'],
-              'promotion': report['promotion'],
-              'missingness': report['robustness']['missing_sensor_families'],
-              'drift': report['drift'],
-              'unseen_vehicle': report['robustness']['unseen_vehicle'],
+              'eta_baseline': eta['baseline']['test_metrics'],
+              'eta_candidate': eta['candidate']['test_metrics'],
+              'eta_promotion': eta['promotion'],
+              'routing_baseline': routing['baseline']['metrics'],
+              'routing_candidate': routing['candidate']['metrics'],
+              'routing_promotion': routing['promotion'],
+              'release_gate': report['release_gate'],
           }, indent=2))
           PY
