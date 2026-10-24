@@ -149,3 +149,30 @@ def test_invalid_kafka_event_is_not_committed() -> None:
 def test_decode_eta_event_rejects_non_object_json() -> None:
     with pytest.raises(ValueError, match="JSON object"):
         decode_eta_event("[]")
+
+
+def test_mlflow_registration_rejects_unreviewed_model_type(tmp_path: Path) -> None:
+    import joblib
+    from fleet_intelligence.mlops import log_eta_release
+
+    artifact = tmp_path / "unsupported.joblib"
+    report = tmp_path / "report.json"
+    joblib.dump({"model": object(), "features": ("feature",)}, artifact)
+    report.write_text(json.dumps({"eta": {"promotion": {"decision": "promote"}}}))
+
+    with pytest.raises(ValueError, match="reviewed HistGradientBoostingRegressor"):
+        log_eta_release(model_artifact=artifact, evaluation_report=report)
+
+
+def test_mlflow_registration_rejects_changed_feature_contract(tmp_path: Path) -> None:
+    import joblib
+    from fleet_intelligence.eta import build_eta_candidate
+    from fleet_intelligence.mlops import log_eta_release
+
+    artifact = tmp_path / "wrong-features.joblib"
+    report = tmp_path / "report.json"
+    joblib.dump({"model": build_eta_candidate(), "features": ("feature",)}, artifact)
+    report.write_text(json.dumps({"eta": {"promotion": {"decision": "promote"}}}))
+
+    with pytest.raises(ValueError, match="feature contract"):
+        log_eta_release(model_artifact=artifact, evaluation_report=report)
