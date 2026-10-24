@@ -153,6 +153,7 @@ def test_decode_eta_event_rejects_non_object_json() -> None:
 
 def test_mlflow_registration_rejects_unreviewed_model_type(tmp_path: Path) -> None:
     import joblib
+
     from fleet_intelligence.mlops import log_eta_release
 
     artifact = tmp_path / "unsupported.joblib"
@@ -166,6 +167,7 @@ def test_mlflow_registration_rejects_unreviewed_model_type(tmp_path: Path) -> No
 
 def test_mlflow_registration_rejects_changed_feature_contract(tmp_path: Path) -> None:
     import joblib
+
     from fleet_intelligence.eta import build_eta_candidate
     from fleet_intelligence.mlops import log_eta_release
 
