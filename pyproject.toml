@@ -9,7 +9,7 @@ description = "Fleet ML, anomaly detection, ETA, routing optimization, and produ
 requires-python = ">=3.11,<3.13"
 dependencies = [
   "numpy>=2.0,<3",
-  "pandas>=2.2,<3",
+  "pandas>=2.2,<4",
   "scikit-learn>=1.5,<2",
   "pydantic>=2.9,<3",
   "joblib>=1.4,<2",
